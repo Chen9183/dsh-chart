@@ -111,11 +111,25 @@ window.__ModuleLoader__.load({
     body.innerHTML = svgHtml;
     var svgEl = body.querySelector('svg');
     if (svgEl) {
-      svgEl.style.width = '100%';
-      svgEl.style.minWidth = '520px';
-      svgEl.style.height = 'auto';
-      svgEl.style.maxHeight = '60vh';
+      // 又宽又扁的图（流程图/时序图）不要按宽度压扁：保持高度，横向滑动
+      var vbRaw = (svgEl.getAttribute('viewBox') || '').trim();
+      var vb = vbRaw ? vbRaw.split(/[\s,]+/).map(parseFloat) : [];
+      var vw = vb.length === 4 ? vb[2] : (parseFloat(svgEl.getAttribute('width')) || 0);
+      var vh = vb.length === 4 ? vb[3] : (parseFloat(svgEl.getAttribute('height')) || 0);
+      var ratio = (vw > 0 && vh > 0) ? vw / vh : 0;
       svgEl.removeAttribute('height');
+      if (ratio > 2.2) {
+        svgEl.style.width = 'auto';
+        svgEl.style.height = '340px';
+        svgEl.style.minWidth = '0';
+        svgEl.style.maxWidth = 'none';
+        svgEl.style.maxHeight = 'none';
+      } else {
+        svgEl.style.width = '100%';
+        svgEl.style.minWidth = '460px';
+        svgEl.style.height = 'auto';
+        svgEl.style.maxHeight = '60vh';
+      }
     }
 
     // 表
@@ -385,7 +399,7 @@ window.__ModuleLoader__.load({
       if (tries0 > 6) { host.dataset.dshChart = 'skip'; }
       else { delete host.dataset.dshChart; }
       rendering = false;
-      setTimeout(drain, 400);
+      setTimeout(drain, 600);
       return;
     }
     var id = 'dshmmd' + Math.random().toString(36).slice(2);
@@ -424,13 +438,13 @@ window.__ModuleLoader__.load({
       cleanupTemp();
       if (tries <= 6) {
         delete host.dataset.dshChart;
-        setTimeout(drain, 500);
+        setTimeout(drain, 800);
       } else {
         host.dataset.dshChart = 'skip';   // 放弃，代码块原样保留
       }
     }).then(function () {
       rendering = false;
-      setTimeout(drain, 80);
+      setTimeout(drain, 1000);
     });
   }
 
