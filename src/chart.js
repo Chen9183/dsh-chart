@@ -281,6 +281,7 @@
   function svgPie(items) {
     var W = 560, H = 340;
     var total = items.reduce(function (a, b) { return a + b.value; }, 0) || 1;
+    var colors = items.map(function (it, i) { return PALETTE[i % PALETTE.length]; });
     var cx = 170, cy = H / 2, r = 118;
     var s = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" width="100%" style="display:block;max-height:55vh">'];
     var ang = -Math.PI / 2;
@@ -290,9 +291,9 @@
       var x2 = cx + r * Math.cos(ang + a), y2 = cy + r * Math.sin(ang + a);
       var large = a > Math.PI ? 1 : 0;
       if (items.length === 1) {
-        s.push('<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + PALETTE[i % PALETTE.length] + '"/>');
+        s.push('<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + colors[i] + '"/>');
       } else {
-        s.push('<path d="M' + cx + ',' + cy + ' L' + x1.toFixed(1) + ',' + y1.toFixed(1) + ' A' + r + ',' + r + ' 0 ' + large + ' 1 ' + x2.toFixed(1) + ',' + y2.toFixed(1) + ' Z" fill="' + PALETTE[i % PALETTE.length] + '"/>');
+        s.push('<path d="M' + cx + ',' + cy + ' L' + x1.toFixed(1) + ',' + y1.toFixed(1) + ' A' + r + ',' + r + ' 0 ' + large + ' 1 ' + x2.toFixed(1) + ',' + y2.toFixed(1) + ' Z" fill="' + colors[i] + '"/>');
       }
       var mid = ang + a / 2, tx = cx + r * 0.62 * Math.cos(mid), ty = cy + r * 0.62 * Math.sin(mid);
       var pct = Math.round(it.value / total * 100);
@@ -301,7 +302,7 @@
     });
     var ly = cy - items.length * 13;
     items.forEach(function (it, i) {
-      s.push('<rect x="' + (W - 168) + '" y="' + (ly + i * 26) + '" width="12" height="12" rx="3" fill="' + PALETTE[i % PALETTE.length] + '"/>');
+      s.push('<rect x="' + (W - 168) + '" y="' + (ly + i * 26) + '" width="12" height="12" rx="3" fill="' + colors[i] + '"/>');
       s.push('<text x="' + (W - 150) + '" y="' + (ly + i * 26 + 11) + '" fill="#cfd6df" font-size="13">' + esc(it.label) + '</text>');
     });
     s.push('</svg>');
@@ -384,6 +385,15 @@
     var data = parseData(src);
     var nativeSvg = null;
     try { nativeSvg = buildNative(src); } catch (e) { nativeSvg = null; }
+    // 柱状/折线/饼图只走自绘，绝不回落 mermaid（mermaid 的 pie 图例颜色有 bug）
+    var forceNative = /^(pie|xychart-beta)\b/.test(src.trim());
+    if (forceNative && !nativeSvg) {
+      host.dataset.dshChart = 'err';
+      host.replaceWith(errCard('这张图没解析出数据，检查一下 x-axis / bar / pie 的写法', src));
+      rendering = false;
+      setTimeout(drain, 40);
+      return;
+    }
     var id = 'dshmmd' + Math.random().toString(36).slice(2);
     var srcForRender = src.replace(/^\s*title\s+.*$/m, '').replace(/^(\s*pie)\s+title\s+.*$/m, '$1');
     var precheck;
