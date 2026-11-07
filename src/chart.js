@@ -492,8 +492,22 @@
     if (window.mermaid) init();
   }
 
-  new MutationObserver(function () { if (ready) scanAll(); })
-    .observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+  // ---- 刷新指令：消息里出现 [[rechart]] 就整页重载，重新渲染当前对话所有图表 ----
+  var REFRESH_TOKEN = '[[' + 'rechart' + ']]';
+  function watchRefreshCommand() {
+    try {
+      if (document.body && document.body.innerText.indexOf(REFRESH_TOKEN) >= 0) {
+        location.reload();
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+  new MutationObserver(function () {
+    if (ready) scanAll();
+    watchRefreshCommand();
+  }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+
 
   setInterval(function () { if (ready) scanAll(); }, 1500);
 
