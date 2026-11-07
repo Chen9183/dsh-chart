@@ -1,0 +1,5 @@
+# dsh-chart 的 bundle patch：把「图表」插件挂进 DSH 配置树。
+# id 与包名一致，避免与其它插件的行标识冲突。
+- insert:
+    - id: dsh-chart
+      name: 'dsh-chart'

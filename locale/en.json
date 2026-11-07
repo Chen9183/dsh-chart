@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Chart",
+    "description": "Render mermaid code blocks in replies as chart cards (bar / line / pie / flowchart), with one-tap switching between the chart and its data table. mermaid is inlined — works fully offline."
+  }
+}
