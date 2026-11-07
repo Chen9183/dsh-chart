@@ -207,11 +207,11 @@
     for (var i = 0; i <= steps; i++) {
       var v = minV + (maxV - minV) * i / steps;
       var yy = y(v).toFixed(1);
-      s.push('<line x1="' + L + '" y1="' + yy + '" x2="' + (W - R) + '" y2="' + yy + '" stroke="' + (i === 0 ? '#39434f' : '#202832') + '" stroke-width="1"/>');
-      s.push('<text x="' + (L - 8) + '" y="' + (+yy + 4) + '" fill="#7d8794" font-size="12" text-anchor="end">' + fmtNum(v) + '</text>');
+      s.push('<line x1="' + L + '" y1="' + yy + '" x2="' + (W - R) + '" y2="' + yy + '" stroke="' + (i === 0 ? '#4b596a' : '#2f3a47') + '" stroke-width="1"/>');
+      s.push('<text x="' + (L - 8) + '" y="' + (+yy + 4) + '" fill="#b6c2cf" font-size="12" text-anchor="end">' + fmtNum(v) + '</text>');
     }
     if (p.yname) {
-      s.push('<text x="' + L + '" y="' + (T - 4) + '" fill="#7d8794" font-size="12" text-anchor="start">' + esc(p.yname) + '</text>');
+      s.push('<text x="' + L + '" y="' + (T - 4) + '" fill="#b6c2cf" font-size="12" text-anchor="start">' + esc(p.yname) + '</text>');
     }
     var slot = iw / n;
     var bars = p.series.filter(function (x) { return x.type === 'bar'; });
@@ -245,7 +245,7 @@
     for (var k2 = 0; k2 < n; k2++) {
       var lab = p.labels[k2] || String(k2 + 1);
       if (lab.length > 6) lab = lab.slice(0, 6) + '…';
-      s.push('<text x="' + (L + slot * (k2 + 0.5)).toFixed(1) + '" y="' + (H - B + 22) + '" fill="#9aa4b2" font-size="12" text-anchor="middle">' + esc(lab) + '</text>');
+      s.push('<text x="' + (L + slot * (k2 + 0.5)).toFixed(1) + '" y="' + (H - B + 22) + '" fill="#c9d5e1" font-size="12" text-anchor="middle">' + esc(lab) + '</text>');
     }
     s.push('</svg>');
     return s.join('');
@@ -282,7 +282,7 @@
     var ly = cy - items.length * 13;
     items.forEach(function (it, i) {
       s.push('<rect x="' + (W - 168) + '" y="' + (ly + i * 26) + '" width="12" height="12" rx="3" fill="' + colors[i] + '"/>');
-      s.push('<text x="' + (W - 150) + '" y="' + (ly + i * 26 + 11) + '" fill="#cfd6df" font-size="13">' + esc(it.label) + '</text>');
+      s.push('<text x="' + (W - 150) + '" y="' + (ly + i * 26 + 11) + '" fill="#e2ecf7" font-size="13">' + esc(it.label) + '</text>');
     });
     s.push('</svg>');
     return s.join('');
@@ -439,9 +439,21 @@
         flowchart: { htmlLabels: true, curve: 'basis' },
         themeVariables: {
           background: 'transparent',
-          primaryColor: '#3b82f6',
-          primaryTextColor: '#e6e6e6',
-          lineColor: '#7d8794',
+          primaryColor: '#4da3ff',
+          primaryTextColor: '#ffffff',
+          primaryBorderColor: '#9ccbff',
+          secondaryColor: '#4dd08a',
+          secondaryBorderColor: '#8ee7b4',
+          tertiaryColor: '#ffb74d',
+          tertiaryBorderColor: '#ffd08a',
+          lineColor: '#c9d6e4',
+          textColor: '#eef4fa',
+          mainBkg: '#1f2b38',
+          nodeBorder: '#8cc6ff',
+          clusterBkg: '#182029',
+          clusterBorder: '#4b596a',
+          edgeLabelBackground: '#1b2430',
+          titleColor: '#ffffff',
           pie1: '#4da3ff', pie2: '#ffb74d', pie3: '#4dd08a', pie4: '#f06292',
           pie5: '#ab7bf7', pie6: '#4dd0e1', pie7: '#ffd54f', pie8: '#8d9bff',
           pie9: '#ff8a65', pie10: '#9ccc65', pie11: '#ba68c8', pie12: '#64b5f6'
