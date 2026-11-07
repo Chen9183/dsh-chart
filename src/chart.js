@@ -360,7 +360,7 @@
     if (code.__dshSig !== text) {
       code.__dshSig = text;
       if (code.__dshTimer) clearTimeout(code.__dshTimer);
-      code.__dshTimer = setTimeout(function () { schedule(code); }, 450);
+      code.__dshTimer = setTimeout(function () { schedule(code); }, 800);
       return;
     }
     if (pendingQueue.indexOf(code) >= 0) return;
@@ -388,10 +388,13 @@
     // 柱状/折线/饼图只走自绘，绝不回落 mermaid（mermaid 的 pie 图例颜色有 bug）
     var forceNative = /^(pie|xychart-beta)\b/.test(src.trim());
     if (forceNative && !nativeSvg) {
-      host.dataset.dshChart = 'err';
-      host.replaceWith(errCard('这张图没解析出数据，检查一下 x-axis / bar / pie 的写法', src));
+      // 内容还没写完整（或真的解析不了）：保留原代码块，不报错
+      var tries0 = parseInt(host.dataset.dshTries || '0', 10) + 1;
+      host.dataset.dshTries = String(tries0);
+      if (tries0 > 6) { host.dataset.dshChart = 'skip'; }
+      else { delete host.dataset.dshChart; }
       rendering = false;
-      setTimeout(drain, 40);
+      setTimeout(drain, 400);
       return;
     }
     var id = 'dshmmd' + Math.random().toString(36).slice(2);
@@ -424,16 +427,15 @@
       }
       cleanupTemp();
     }).catch(function (err) {
-      var tries = parseInt(host.dataset.dshRetry || '0', 10) + 1;
-      host.dataset.dshRetry = String(tries);
+      var tries = parseInt(host.dataset.dshTries || '0', 10) + 1;
+      host.dataset.dshTries = String(tries);
       console.warn('[dsh-chart] 渲染失败:', err && err.message ? err.message : err);
       cleanupTemp();
-      if (tries < 3) {
+      if (tries <= 6) {
         delete host.dataset.dshChart;
-        setTimeout(drain, 700);
+        setTimeout(drain, 500);
       } else {
-        host.dataset.dshChart = 'err';
-        host.replaceWith(errCard(err, src));
+        host.dataset.dshChart = 'skip';   // 放弃，代码块原样保留
       }
     }).then(function () {
       rendering = false;
