@@ -105,9 +105,9 @@
     var svgEl = body.querySelector('svg');
     if (svgEl) {
       svgEl.style.width = '100%';
-      svgEl.style.maxWidth = '100%';
+      svgEl.style.minWidth = '520px';
       svgEl.style.height = 'auto';
-      svgEl.style.maxHeight = '55vh';
+      svgEl.style.maxHeight = '60vh';
       svgEl.removeAttribute('height');
     }
 
@@ -357,7 +357,12 @@
     if (!looksLikeDiagram(code)) { drain(); return; }
     var src = (code.textContent || '').trim();
     if (!src) { drain(); return; }
-    // 流式渲染途中拿到的可能是半截内容（比如只有 "xychart-beta" 一行），先等它长全
+    // 流式途中拿到的可能是半截内容：以「最后一行是 %%」为写完整标记，没见到就等。
+    // 兼容旧消息（页面加载时就已存在的完整内容）：3 秒后也放行。
+    if (!/^\s*%%\s*$/m.test(src)) {
+      if (!code.__dshSeen) code.__dshSeen = Date.now();
+      if (Date.now() - code.__dshSeen < 3000) { drain(); return; }
+    }
     if (src.length < 24 || (src.indexOf('\n') < 0 && src.length < 64)) { drain(); return; }
     host.dataset.dshChart = 'pending';
     rendering = true;
@@ -377,7 +382,7 @@
       return;
     }
     var id = 'dshmmd' + Math.random().toString(36).slice(2);
-    var srcForRender = src.replace(/^\s*title\s+.*$/m, '').replace(/^(\s*pie)\s+title\s+.*$/m, '$1');
+    var srcForRender = src.replace(/^\s*%%\s*$/gm, '').replace(/^\s*title\s+.*$/m, '').replace(/^(\s*pie)\s+title\s+.*$/m, '$1');
     var precheck;
     try { precheck = window.mermaid.parse(srcForRender); } catch (e) { precheck = Promise.reject(e); }
     Promise.resolve(precheck).then(function () {
