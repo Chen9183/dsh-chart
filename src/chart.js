@@ -397,8 +397,6 @@
     }
     var id = 'dshmmd' + Math.random().toString(36).slice(2);
     var srcForRender = src.replace(/^\s*%%\s*$/gm, '').replace(/^\s*title\s+.*$/m, '').replace(/^(\s*pie)\s+title\s+.*$/m, '$1');
-    // flowchart 横排会被拉成又扁又长的一条：LR/RL 自动转成 TB（自上而下），布局更紧凑
-    srcForRender = srcForRender.replace(/^(\s*(?:flowchart|graph)\s+)(LR|RL)\b/m, '$1TB');
     var precheck;
     try { precheck = window.mermaid.parse(srcForRender); } catch (e) { precheck = Promise.reject(e); }
     Promise.resolve(precheck).then(function () {
