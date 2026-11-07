@@ -81,26 +81,6 @@ window.__ModuleLoader__.load({
     return t;
   }
 
-  // 给柱状图的柱子加圆角（跳过整块背景 rect）
-  function roundBars(svg) {
-    if (!svg) return;
-    var vb = (svg.getAttribute('viewBox') || '').split(/\s+/);
-    var totalW = vb.length === 4 ? parseFloat(vb[2]) : svg.clientWidth || 800;
-    var rects = svg.querySelectorAll('rect');
-    for (var i = 0; i < rects.length; i++) {
-      var r = rects[i];
-      var fill = r.getAttribute('fill') || '';
-      if (!fill || /none|transparent/i.test(fill)) continue;
-      var w = parseFloat(r.getAttribute('width') || '0');
-      var h = parseFloat(r.getAttribute('height') || '0');
-      if (!(w > 0 && h > 0)) continue;
-      if (w > totalW * 0.6) continue;              // 整块背景
-      var rad = Math.min(7, w / 2, h / 2);
-      if (rad > 0) { r.setAttribute('rx', rad); r.setAttribute('ry', rad); }
-      r.setAttribute('fill', '#4da3ff');
-    }
-  }
-
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]; }); }
 
   var ICON_CODE = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -131,7 +111,6 @@ window.__ModuleLoader__.load({
     body.innerHTML = svgHtml;
     var svgEl = body.querySelector('svg');
     if (svgEl) {
-      roundBars(svgEl);
       svgEl.style.width = '100%';
       svgEl.style.maxWidth = '100%';
       svgEl.style.height = 'auto';
