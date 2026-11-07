@@ -349,11 +349,21 @@ window.__ModuleLoader__.load({
     } catch (e) {}
   }
 
+  // 只画视口附近的图，离屏的先跳过（滚动到再画）
+  function inViewport(el, margin) {
+    try {
+      var r = el.getBoundingClientRect();
+      var vh = window.innerHeight || 800;
+      return r.bottom > -margin && r.top < vh + margin;
+    } catch (e) { return true; }
+  }
+
   function schedule(code) {
     if (!ready || !code || !code.isConnected) return;
     var host = code.closest('[data-code-wrap]') || code.closest('pre');
     if (!host || host.dataset.dshChart) return;   // 行内 <code>（正文里的 `xychart-beta`）直接跳过
     if (!looksLikeDiagram(code)) return;
+    if (!inViewport(host, 600)) return;           // 离屏的先不画，等滚到附近再说
     // 流式输出时代码块内容一直在变，等它稳定 450ms 没有再变才画
     var text = (code.textContent || '').trim();
     if (!text) return;
@@ -376,6 +386,7 @@ window.__ModuleLoader__.load({
     var host = code.closest('[data-code-wrap]') || code.closest('pre');
     if (!host || host.dataset.dshChart) { drain(); return; }
     if (!looksLikeDiagram(code)) { drain(); return; }
+    if (!inViewport(host, 600)) { drain(); return; }
     var src = (code.textContent || '').trim();
     if (!src) { drain(); return; }
     // 流式途中拿到的可能是半截内容：以「最后一行是 %%」为写完整标记，没见到就等。
@@ -449,7 +460,7 @@ window.__ModuleLoader__.load({
   }
 
   function scanAll() {
-    var codes = document.querySelectorAll('code');
+    var codes = Array.prototype.slice.call(document.querySelectorAll('code')).reverse();
     for (var i = 0; i < codes.length; i++) schedule(codes[i]);
   }
 
@@ -527,6 +538,13 @@ window.__ModuleLoader__.load({
     watchRefreshCommand();
   }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
 
+
+  var scrollTimer = null;
+  window.addEventListener('scroll', function () {
+    if (!ready) return;
+    if (scrollTimer) clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(scanAll, 250);
+  }, { passive: true });
 
   setInterval(function () { if (ready) scanAll(); }, 1500);
 
