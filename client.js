@@ -522,22 +522,64 @@ window.__ModuleLoader__.load({
     if (window.mermaid) init();
   }
 
-  // ---- 刷新指令：消息里出现 [[rechart]] 就整页重载，重新渲染当前对话所有图表 ----
-  var REFRESH_TOKEN = '[[' + 'rechart' + ']]';
-  function watchRefreshCommand() {
-    try {
-      if (document.body && document.body.innerText.indexOf(REFRESH_TOKEN) >= 0) {
-        location.reload();
-        return true;
-      }
-    } catch (e) {}
-    return false;
+  // ---- /rechart 命令：在输入框里敲 /rechart 把当前会话里的图表全部重新渲染 ----
+  // 走客户端命令（ctx.commandUi），不再靠扫描正文里的文本标记：
+  // 没有全页文本监听，打开源码/文档/文件预览都不会误触发。
+  function reRenderAll() {
+    // 整页重载最干净：会话在服务端，重载后所有图表按当前内容重画一遍
+    setTimeout(function () { location.reload(); }, 60);
   }
-  new MutationObserver(function () {
-    if (ready) scanAll();
-    watchRefreshCommand();
-  }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
 
+  function apply(ctx) {
+    try {
+      ctx.inject(['commandUi'], function (scope) {
+        var commandUi = scope.get('commandUi');
+        if (!commandUi || !commandUi.register) return;
+        scope.effect(function () {
+          return commandUi.register({
+            name: 'rechart',
+            label: function () { return '重新渲染图表'; },
+            description: function () { return '把当前会话里的所有图表重新画一遍'; },
+            available: function () { return true; },
+            ui: { kind: 'action', run: function () { reRenderAll(); } }
+          });
+        }, 'dsh-chart: /rechart');
+      });
+    } catch (e) {
+      console.warn('[dsh-chart] 注册 /rechart 失败', e && e.message ? e.message : e);
+    }
+  }
+
+  // 这些区域里的变动（代码块、文件预览、输入框、图表卡片）不触发整页重扫
+  var NOT_MESSAGE_TEXT = 'pre, code, [data-code-wrap], textarea, input, select, .dsh-chart-card';
+
+  // 变动是不是全在代码块里（流式输出就是这样长出来的）：那就不用整页重扫
+  function onlyInCode(records) {
+    for (var i = 0; i < records.length; i++) {
+      var t = records[i].target;
+      var el = t && (t.nodeType === 1 ? t : t.parentElement);
+      if (!el || !el.closest) return false;
+      if (!el.closest(NOT_MESSAGE_TEXT)) return false;
+    }
+    return true;
+  }
+
+  // 整页扫描节流：文件预览/流式输出会一口气灌几千个节点进来，逐个重扫会把主线程打死
+  var scanTimer = null;
+  function queueScan() {
+    if (scanTimer) return;
+    scanTimer = setTimeout(function () {
+      scanTimer = null;
+      if (ready) scanAll();
+    }, 200);
+  }
+
+  var pageObserver = new MutationObserver(function (records) {
+    if (!ready) return;
+    if (onlyInCode(records)) return;
+    queueScan();
+  });
+  pageObserver.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
 
   var scrollTimer = null;
   window.addEventListener('scroll', function () {
@@ -546,15 +588,26 @@ window.__ModuleLoader__.load({
     scrollTimer = setTimeout(scanAll, 250);
   }, { passive: true });
 
-  setInterval(function () { if (ready) scanAll(); }, 1500);
+  // 兜底慢扫：只在看着页面时低频跑一遍（漏掉的图表迟早补上）
+  setInterval(function () {
+    if (!ready || document.hidden) return;
+    queueScan();
+  }, 30000);
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', load);
   else load();
+
+  // 客户端模块导出（build.mjs 打成的 __ModuleLoader__ 模块）：把 /rechart 挂上去
+  try {
+    if (typeof exports === 'object' && exports) exports.apply = apply;
+  } catch (e) {}
 })();
 		} catch (e) { console.warn('[dsh-chart] 初始化失败', e); }
 		exports.name = "dsh-chart";
 		exports.inject = [];
-		exports.apply = function (ctx) { try { ctx && ctx.logger && ctx.logger.info && ctx.logger.info('[dsh-chart] 图表已启用'); } catch (e) {} };
+		if (typeof exports.apply !== "function") {
+			exports.apply = function (ctx) { try { ctx && ctx.logger && ctx.logger.info && ctx.logger.info('[dsh-chart] 图表已启用'); } catch (e) {} };
+		}
 		return module.exports;
 	}
 });

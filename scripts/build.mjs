@@ -28,7 +28,9 @@ ${chart}
 		} catch (e) { console.warn('[dsh-chart] 初始化失败', e); }
 		exports.name = "dsh-chart";
 		exports.inject = [];
-		exports.apply = function (ctx) { try { ctx && ctx.logger && ctx.logger.info && ctx.logger.info('[dsh-chart] 图表已启用'); } catch (e) {} };
+		if (typeof exports.apply !== "function") {
+			exports.apply = function (ctx) { try { ctx && ctx.logger && ctx.logger.info && ctx.logger.info('[dsh-chart] 图表已启用'); } catch (e) {} };
+		}
 		return module.exports;
 	}
 });
