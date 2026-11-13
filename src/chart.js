@@ -613,7 +613,24 @@
   }
 
   // ---- 客户端命令：/rechart 重新画一遍、/rechart-clear 清缓存再画 ----
-  // 走 ctx.commandUi（客户端动作，不提交消息、不花 token），不靠扫描正文文本。
+  // 注册方式照 dsh-pet（新版）那套：模块 exports.inject 里声明 commandUi 依赖，
+  // apply 里用 ctx.get('commandUi') 拿服务，命令注册挂在 ctx.effect 上自动随插件卸载释放。
+  var COMMAND_INJECT = ['commandUi'];
+
+  // 图标不是必须的：拿不到图标包就注册无图标命令（跟 dsh-pet 的处理一致）
+  var commandPrimitives = null;
+  try {
+    if (typeof require === 'function') commandPrimitives = require('@deepseek-ai/dsh-client-ui-primitives');
+  } catch (e) {
+    commandPrimitives = null;
+  }
+
+  function commandIcon() {
+    var p = commandPrimitives;
+    if (!p) return undefined;
+    return p.IconChartOutlineRegular || p.IconDataBarVerticalOutlineRegular || p.IconGaugeOutlineRegular || undefined;
+  }
+
   function reRenderAll() {
     // 整页重载最干净：会话在服务端，重载后所有图表按缓存/当前内容重画一遍
     setTimeout(function () { location.reload(); }, 60);
@@ -627,33 +644,57 @@
     });
   }
 
-  function apply(ctx) {
-    try {
-      ctx.inject(['commandUi'], function (scope) {
-        var commandUi = scope.get('commandUi');
-        if (!commandUi || !commandUi.register) return;
-        scope.effect(function () {
-          return commandUi.register({
-            name: 'rechart',
-            label: function () { return '重新渲染图表'; },
-            description: function () { return '把当前会话里的所有图表重新画一遍（有缓存就直接用缓存）'; },
-            available: function () { return true; },
-            ui: { kind: 'action', run: function () { reRenderAll(); } }
-          });
-        }, 'dsh-chart: /rechart');
-        scope.effect(function () {
-          return commandUi.register({
-            name: 'rechart-clear',
-            label: function () { return '清除图表缓存'; },
-            description: function () { return '清空图表渲染缓存，然后重新画一遍'; },
-            available: function () { return true; },
-            ui: { kind: 'action', run: function () { clearCacheAndRedraw(); } }
-          });
-        }, 'dsh-chart: /rechart-clear');
-      });
-    } catch (e) {
-      console.warn('[dsh-chart] 注册 /rechart 命令失败', e && e.message ? e.message : e);
+  function registerCommands(commandUi) {
+    var disposers = [];
+    var icon = commandIcon();
+
+    function add(name, label, description, run) {
+      var contribution = {
+        name: name,
+        label: label,
+        description: description,
+        available: function () { return true; },
+        ui: { kind: 'action', run: run }
+      };
+      if (icon) contribution.icon = icon;   // 没有图标包就不带 icon 字段
+      disposers.push(commandUi.register(contribution));
     }
+
+    add(
+      'rechart',
+      function () { return '重新渲染图表'; },
+      function () { return '把当前会话里的所有图表重新画一遍（有缓存就直接用缓存）'; },
+      function () { reRenderAll(); }
+    );
+    add(
+      'rechart-clear',
+      function () { return '清除图表缓存'; },
+      function () { return '清空图表渲染缓存，然后重新画一遍'; },
+      function () { clearCacheAndRedraw(); }
+    );
+
+    return function () {
+      for (var i = 0; i < disposers.length; i++) {
+        try { disposers[i](); } catch (e) {}
+      }
+      disposers.length = 0;
+    };
+  }
+
+  function apply(ctx) {
+    ctx.effect(function () {
+      var commandUi = ctx.get && ctx.get('commandUi');
+      if (!commandUi || typeof commandUi.register !== 'function') {
+        console.warn('[dsh-chart] 命令不可用：commandUi 服务缺失（图表本身照常渲染）');
+        return function () {};
+      }
+      try {
+        return registerCommands(commandUi);
+      } catch (e) {
+        console.warn('[dsh-chart] 注册 /rechart 命令失败：' + (e && e.message ? e.message : e));
+        return function () {};
+      }
+    }, 'dsh-chart: /rechart 命令');
   }
 
   // 这些区域里的变动（代码块、文件预览、输入框、图表卡片）不触发整页重扫
@@ -703,8 +744,12 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', load);
   else load();
 
-  // 客户端模块导出（build.mjs 打成的 __ModuleLoader__ 模块）：把 /rechart 挂上去
+  // 客户端模块导出（build.mjs 打成的 __ModuleLoader__ 模块）：
+  // inject 里声明 commandUi，DSH 才会在服务就绪后调用 apply 注册 /rechart
   try {
-    if (typeof exports === 'object' && exports) exports.apply = apply;
+    if (typeof exports === 'object' && exports) {
+      exports.apply = apply;
+      exports.inject = COMMAND_INJECT;
+    }
   } catch (e) {}
 })();
