@@ -37,8 +37,8 @@ const USAGE = [
 
 const ROUTE = '/dsh-chart-cache';   // 不用 /plugins/ 前缀，免得跟 client-modules 的路由打架
 // 缓存文件后缀：svg 是纯文本，zstd 压完只有一成多，落盘更省
-const EXT = '.json.zst';
-const LEGACY_EXT = '.json';
+const EXT = '.json.zst';     // 压得动的走这个（zstd）
+const RAW_EXT = '.json';     // 压不动的（已经压过的 / 随机数据）原样存这个
 const MAX_BODY = 4 * 1024 * 1024; // 单张图的 svg 上限，防止被灌大包
 const KEY_RE = /^[a-z0-9]{6,64}$/;
 
@@ -48,18 +48,55 @@ export function cacheDir() {
   return join(home, 'cache', 'dsh-chart');
 }
 
-// zstd 优先（Node 22+ 自带）；老 Node 退回 deflateRaw，不能再退就原样存
+// zstd 优先（Node 22+ 自带）；老 Node 退回 deflateRaw
 const HAS_ZSTD = typeof zstdCompressSync === 'function';
 
-function compressText(text) {
-  const buf = Buffer.from(text, 'utf8');
+function pack(buf) {
   if (HAS_ZSTD) return zstdCompressSync(buf, { params: { [zlibConstants.ZSTD_c_compressionLevel]: 3 } });
   try { return deflateRawSync(buf); } catch (e) { return buf; }
 }
 
-function decompressText(buf) {
-  if (HAS_ZSTD) return zstdDecompressSync(buf).toString('utf8');
-  try { return inflateRawSync(buf).toString('utf8'); } catch (e) { return buf.toString('utf8'); }
+/** 已经是压缩格式的魔数（zstd / gzip / zip / lz4 / 7z / bz2 / xz / br），压了反而变大 */
+const PACKED_MAGIC = [
+  [0x28, 0xb5, 0x2f, 0xfd],   // zstd
+  [0x1f, 0x8b],               // gzip
+  [0x50, 0x4b, 0x03, 0x04],   // zip
+  [0x04, 0x22, 0x4d, 0x18],   // lz4
+  [0x37, 0x7a, 0xbc, 0xaf],   // 7z
+  [0x42, 0x5a, 0x68],         // bz2
+  [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00], // xz
+];
+
+function looksPacked(buf) {
+  for (const magic of PACKED_MAGIC) {
+    if (buf.length >= magic.length && magic.every((b, i) => buf[i] === b)) return true;
+  }
+  return false;
+}
+
+/**
+ * 能压才压：压完没比原文小（或本来就是压缩格式）就原样存，别为了"有压缩"反而变大。
+ * @returns {{buf: Buffer, encoding: 'zstd'|'raw'}}
+ */
+function encodeForDisk(text) {
+  const raw = Buffer.from(text, 'utf8');
+  if (raw.length < 256 || looksPacked(raw)) return { buf: raw, encoding: 'raw' };
+  let packed;
+  try { packed = pack(raw); } catch (e) { return { buf: raw, encoding: 'raw' }; }
+  // 留 16 字节余量：省不下这点就没意义
+  if (!packed || packed.length >= raw.length - 16) return { buf: raw, encoding: 'raw' };
+  return { buf: packed, encoding: 'zstd' };
+}
+
+/** 读回来：先按 zstd 解，解不开（可能是原样存的）就当纯文本 */
+function decodeFromDisk(buf, encoding) {
+  if (encoding === 'raw') return buf.toString('utf8');
+  try {
+    if (HAS_ZSTD) return zstdDecompressSync(buf).toString('utf8');
+    return inflateRawSync(buf).toString('utf8');
+  } catch (e) {
+    return buf.toString('utf8');
+  }
 }
 
 async function ensureDir() {
@@ -140,10 +177,10 @@ function serveCache(ctx) {
         if (req.method === 'GET' || req.method === 'HEAD') {
           let svg;
           try {
-            svg = decompressText(await readFile(join(cacheDir(), rest + EXT)));
+            svg = decodeFromDisk(await readFile(join(cacheDir(), rest + EXT)), 'zstd');
           } catch (e) {
             try {
-              svg = await readFile(join(cacheDir(), rest + LEGACY_EXT), 'utf8');   // 兼容旧的未压缩缓存
+              svg = decodeFromDisk(await readFile(join(cacheDir(), rest + RAW_EXT)), 'raw');   // 压不动的那批
             } catch (e2) {
               return send(res, 404, 'miss');
             }
@@ -154,13 +191,18 @@ function serveCache(ctx) {
           const body = await readBody(req, MAX_BODY);
           if (!body || body.length < 40) return send(res, 400, 'empty');
           const dir = await ensureDir();
-          const packed = compressText(body);
-          await writeFile(join(dir, rest + EXT), packed);
+          const encoded = encodeForDisk(body);
+          const file = join(dir, rest + (encoded.encoding === 'zstd' ? EXT : RAW_EXT));
+          const other = join(dir, rest + (encoded.encoding === 'zstd' ? RAW_EXT : EXT));
+          await writeFile(file, encoded.buf);
+          await unlink(other).catch(() => {});   // 同一个 key 只留一份，别两种后缀并存
+          const rawBytes = Buffer.byteLength(body);
           return send(res, 200, JSON.stringify({
             ok: true,
-            raw: Buffer.byteLength(body),
-            bytes: packed.length,
-            ratio: +(packed.length / Math.max(1, Buffer.byteLength(body))).toFixed(3)
+            raw: rawBytes,
+            bytes: encoded.buf.length,
+            encoding: encoded.encoding,
+            ratio: +(encoded.buf.length / Math.max(1, rawBytes)).toFixed(3)
           }), 'application/json');
         }
         res.setHeader('allow', 'GET, HEAD, POST');

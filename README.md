@@ -111,8 +111,10 @@ npm pack          # 打 tarball
 
 | 项目 | 说明 |
 |---|---|
-| 目录 | `$DSH_HOME/cache/dsh-chart/`（默认 `/.dsh/cache/dsh-chart/`），一张图一个 `<key>.json.zst` |
-| 压缩 | 落盘前用 **zstd**（Node 自带，level 3）；纯文本 SVG 实测压到 **约 14%**（45.7KB → 6.5KB）。老 Node 退回 deflateRaw，旧的无压缩 `.json` 仍可读 |
+| 目录 | `$DSH_HOME/cache/dsh-chart/`（默认 `/.dsh/cache/dsh-chart/`），一张图一个文件 |
+| 能压才压 | 先试 **zstd**（Node 自带，level 3）；压完至少省 16 字节才写成 `<key>.json.zst`，否则原样写 `<key>.json` —— 不再为了"有压缩"反而变大 |
+| 不压的情况 | 小于 256 字节、压缩没收益、或内容本身已是压缩格式（zstd / gzip / zip / lz4 / 7z / bz2 / xz 魔数） |
+| 实测 | 纯文本 SVG 压到 **约 14%**（45.7KB → 6.5KB）；老 Node 退回 deflateRaw；两种后缀都能读 |
 | key | 图表源码（去掉 `%%`/`title` 行）的 FNV-1a 双哈希 + `CACHE_VER`，换逻辑改 `CACHE_VER` 即失效 |
 | 接口 | `GET /dsh-chart-cache/<key>` 取、`POST /dsh-chart-cache/<key>` 存、`POST /dsh-chart-cache/clear` 清空 |
 | 清理 | 插件卸载/停用/重载时自动 `rm -rf` 整个缓存目录 |
