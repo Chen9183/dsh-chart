@@ -351,6 +351,80 @@
     } catch (e) { return true; }
   }
 
+  // ---------------- 渲染缓存（宿主侧落盘，页面重开直接取，不用重跑 mermaid） ----------------
+  var CACHE_API = '/dsh-chart-cache/';
+  var CACHE_VER = 'v1';   // 换主题/渲染逻辑时改这里，旧缓存自动失效
+
+  // 源码 → 稳定 key（FNV-1a 两次不同种子，拼 16 位十六进制）
+  function cacheKey(src) {
+    var h1 = 0x811c9dc5, h2 = 0x01000193;
+    var s = CACHE_VER + '|' + src;
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      h1 = (h1 ^ c) >>> 0; h1 = Math.imul(h1, 0x01000193) >>> 0;
+      h2 = (h2 + c) >>> 0; h2 = Math.imul(h2 ^ (h2 >>> 13), 0x27d4eb2d) >>> 0;
+    }
+    return 'c' + h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0');
+  }
+
+  // 同一张 svg 铺多次时，id 会重复（marker 引用会指错），插入前换成本次唯一的 id
+  function uniqueSvg(svg) {
+    try {
+      var m = /<svg[^>]*\sid="([^"]+)"/.exec(svg);
+      if (!m) return svg;
+      var oldId = m[1];
+      var fresh = 'dshmmd' + Math.random().toString(36).slice(2);
+      return svg.split('id="' + oldId + '"').join('id="' + fresh + '"')
+                .split('#' + oldId).join('#' + fresh);
+    } catch (e) { return svg; }
+  }
+
+  function readCache(key) {
+    return new Promise(function (resolve) {
+      var done = false;
+      var timer = setTimeout(function () { if (!done) { done = true; resolve(null); } }, 1500);
+      try {
+        fetch(CACHE_API + key, { cache: 'no-store' }).then(function (r) {
+          if (!r.ok) return null;
+          return r.text();
+        }).then(function (text) {
+          if (done) return;
+          done = true; clearTimeout(timer);
+          if (!text) { resolve(null); return; }
+          try {
+            var obj = JSON.parse(text);
+            resolve(obj && obj.svg ? obj : null);
+          } catch (e) {
+            resolve(text.length > 120 ? { svg: text, badge: '' } : null);   // 兼容裸 svg
+          }
+        }).catch(function () {
+          if (done) return;
+          done = true; clearTimeout(timer); resolve(null);
+        });
+      } catch (e) {
+        if (!done) { done = true; clearTimeout(timer); resolve(null); }
+      }
+    });
+  }
+
+  function writeCache(key, svg, badge) {
+    try {
+      fetch(CACHE_API + key, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ v: 1, ver: CACHE_VER, svg: svg, badge: badge || '' })
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  function clearCacheRemote() {
+    try {
+      return fetch(CACHE_API + 'clear', { method: 'POST', cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { return null; });
+    } catch (e) { return Promise.resolve(null); }
+  }
+
   function schedule(code) {
     if (!ready || !code || !code.isConnected) return;
     var host = code.closest('[data-code-wrap]') || code.closest('pre');
@@ -408,34 +482,18 @@
     }
     var id = 'dshmmd' + Math.random().toString(36).slice(2);
     var srcForRender = src.replace(/^\s*%%\s*$/gm, '').replace(/^\s*title\s+.*$/m, '').replace(/^(\s*pie)\s+title\s+.*$/m, '$1');
-    var precheck;
-    try { precheck = window.mermaid.parse(srcForRender); } catch (e) { precheck = Promise.reject(e); }
-    Promise.resolve(precheck).then(function () {
-      // mermaid 语法通过：标准图，用自绘样式画
-      if (nativeSvg) {
-        host.replaceWith(buildCard(nativeSvg, data, '', src));
-        return null;
-      }
-      return window.mermaid.render(id, srcForRender);
-    }).catch(function (err) {
-      // mermaid 语法没通过：兼容模式自绘，并标明可能有问题
-      if (nativeSvg) {
-        host.replaceWith(buildCard(nativeSvg, data, '⚠ 语法不标准', src));
-        return null;
-      }
-      throw err;
-    }).then(function (res) {
-      if (res === null) { cleanupTemp(); return { skip: true }; }
-      if (res && res.skip) return res;
-      var svg = res && res.svg ? res.svg : '';
-      if (/class="error-icon"|Syntax error in text|Parse error in text/i.test(svg) || svg.length < 120) {
-        host.dataset.dshChart = 'err';
-        host.replaceWith(errCard('mermaid 返回了错误图', src));
-      } else {
-        host.replaceWith(buildCard(svg, data, '', src));
-      }
-      cleanupTemp();
-    }).catch(function (err) {
+    var ckey = cacheKey(srcForRender || src);
+
+    function insert(svgText, badge) {
+      host.replaceWith(buildCard(uniqueSvg(svgText), data, badge || '', src));
+    }
+
+    function finish() {
+      rendering = false;
+      setTimeout(drain, 1000);
+    }
+
+    function fail(err) {
       var tries = parseInt(host.dataset.dshTries || '0', 10) + 1;
       host.dataset.dshTries = String(tries);
       console.warn('[dsh-chart] 渲染失败:', err && err.message ? err.message : err);
@@ -446,10 +504,49 @@
       } else {
         host.dataset.dshChart = 'skip';   // 放弃，代码块原样保留
       }
-    }).then(function () {
-      rendering = false;
-      setTimeout(drain, 1000);
-    });
+    }
+
+    (async function run() {
+      // 1) 缓存命中：直接把上次画好的图铺上去，不再跑 mermaid
+      var cached = await readCache(ckey);
+      if (cached && cached.svg) {
+        insert(cached.svg, cached.badge);
+        cleanupTemp();
+        finish();
+        return;
+      }
+      // 2) 没缓存：正常渲染一遍，画完写进缓存
+      try {
+        var precheck;
+        try { precheck = window.mermaid.parse(srcForRender); } catch (e) { precheck = Promise.reject(e); }
+        var svg = '';
+        var badge = '';
+        try {
+          await precheck;
+          // mermaid 语法通过：标准图，用自绘样式画
+          svg = nativeSvg || (await window.mermaid.render(id, srcForRender)).svg;
+        } catch (err) {
+          // mermaid 语法没通过：兼容模式自绘，并标明可能有问题
+          if (!nativeSvg) throw err;
+          svg = nativeSvg;
+          badge = '⚠ 语法不标准';
+        }
+        if (!svg || /class="error-icon"|Syntax error in text|Parse error in text/i.test(svg) || svg.length < 120) {
+          host.dataset.dshChart = 'err';
+          host.replaceWith(errCard('mermaid 返回了错误图', src));
+          cleanupTemp();
+          finish();
+          return;
+        }
+        insert(svg, badge);
+        cleanupTemp();
+        writeCache(ckey, svg, badge);   // 存进缓存，页面重开时直接取
+        finish();
+      } catch (err) {
+        fail(err);
+        finish();
+      }
+    })();
   }
 
   function scanAll() {
@@ -515,12 +612,19 @@
     if (window.mermaid) init();
   }
 
-  // ---- /rechart 命令：在输入框里敲 /rechart 把当前会话里的图表全部重新渲染 ----
-  // 走客户端命令（ctx.commandUi），不再靠扫描正文里的文本标记：
-  // 没有全页文本监听，打开源码/文档/文件预览都不会误触发。
+  // ---- 客户端命令：/rechart 重新画一遍、/rechart-clear 清缓存再画 ----
+  // 走 ctx.commandUi（客户端动作，不提交消息、不花 token），不靠扫描正文文本。
   function reRenderAll() {
-    // 整页重载最干净：会话在服务端，重载后所有图表按当前内容重画一遍
+    // 整页重载最干净：会话在服务端，重载后所有图表按缓存/当前内容重画一遍
     setTimeout(function () { location.reload(); }, 60);
+  }
+
+  function clearCacheAndRedraw() {
+    clearCacheRemote().then(function (res) {
+      var n = res && typeof res.removed === 'number' ? res.removed : null;
+      notice(n === null ? '图表缓存已清，正在重画…' : '已清掉 ' + n + ' 张图表缓存，正在重画…', false);
+      setTimeout(function () { location.reload(); }, 700);
+    });
   }
 
   function apply(ctx) {
@@ -532,14 +636,23 @@
           return commandUi.register({
             name: 'rechart',
             label: function () { return '重新渲染图表'; },
-            description: function () { return '把当前会话里的所有图表重新画一遍'; },
+            description: function () { return '把当前会话里的所有图表重新画一遍（有缓存就直接用缓存）'; },
             available: function () { return true; },
             ui: { kind: 'action', run: function () { reRenderAll(); } }
           });
         }, 'dsh-chart: /rechart');
+        scope.effect(function () {
+          return commandUi.register({
+            name: 'rechart-clear',
+            label: function () { return '清除图表缓存'; },
+            description: function () { return '清空图表渲染缓存，然后重新画一遍'; },
+            available: function () { return true; },
+            ui: { kind: 'action', run: function () { clearCacheAndRedraw(); } }
+          });
+        }, 'dsh-chart: /rechart-clear');
       });
     } catch (e) {
-      console.warn('[dsh-chart] 注册 /rechart 失败', e && e.message ? e.message : e);
+      console.warn('[dsh-chart] 注册 /rechart 命令失败', e && e.message ? e.message : e);
     }
   }
 

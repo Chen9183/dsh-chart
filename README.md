@@ -15,6 +15,9 @@ mermaid 11.16 已内联进 `client.js`，**离线可用、零外部依赖**，�
 - **语法校验**：先过 mermaid 的 `parse`，标准写法走标准路径；解析不了就降级兼容渲染，并打上黄色的「⚠ 语法不标准」标记
 - **系统提示词只放指针**：插件往系统提示词里注入三行短提示（能画图 / 一图一块 / 末行写 `%%`），
   严格的 mermaid 格式、模板和自检清单放在技能 [`chart`](../../.dsh/skills/chart/SKILL.md) 里，模型要画时才加载 —— 常驻上下文省了，格式反而更严
+- **渲染缓存**：画好一张图就把 SVG 存到磁盘（`$DSH_HOME/cache/dsh-chart/`，默认 `/.dsh/cache/dsh-chart/`），
+  页面重开时直接从缓存铺上去，不再重跑 mermaid；改了主题/渲染逻辑改 `CACHE_VER` 即可整体失效。
+  插件卸载/停用时会连同这个缓存目录一起删掉
 - **容错**：流式输出时等代码块写完（450ms 稳定）再渲染；失败自动重试 3 次
 
 ## 用法
@@ -49,6 +52,17 @@ pie title 时间分配
 | `pie` | 饼图 |
 | `flowchart` / `sequenceDiagram` / `gantt` / `mindmap` … | mermaid 全部图类型（走 mermaid 渲染） |
 
+## 命令
+
+输入框里敲 `/` 就能看到（客户端命令，不提交消息、不花 token）：
+
+| 命令 | 作用 |
+|---|---|
+| `/rechart` | 整页重载，把当前会话的图表重新画一遍（有缓存就直接用缓存） |
+| `/rechart-clear` | 清空渲染缓存，然后重画一遍 |
+
+图表显示残缺/没画出来时，先 `/rechart`；还不对就 `/rechart-clear`。
+
 > ⚠️ `x-axis` 的中文标签必须加引号：`["一月", "二月"]`，否则 mermaid 语法校验不通过，会降级成兼容渲染并标黄。
 
 ## 安装
@@ -78,7 +92,7 @@ npm pack          # 打 tarball
 ```
 .
 ├── package.json          # name / icon / description / exports / dsh 声明
-├── index.js              # 宿主半侧：注入系统提示词
+├── index.js              # 宿主半侧：注入系统提示词 + 缓存读写接口 + 卸载清理
 ├── client.js             # 浏览器半侧（构建产物，内含 mermaid）
 ├── cordis.patch.yml      # bundle 挂载
 ├── src/
@@ -92,6 +106,15 @@ npm pack          # 打 tarball
 ├── locale/en.json        # Title "Chart" + English description
 └── LICENSE
 ```
+
+## 缓存
+
+| 项目 | 说明 |
+|---|---|
+| 目录 | `$DSH_HOME/cache/dsh-chart/`（默认 `/.dsh/cache/dsh-chart/`），一张图一个 `<key>.svg.json` |
+| key | 图表源码（去掉 `%%`/`title` 行）的 FNV-1a 双哈希 + `CACHE_VER`，换逻辑改 `CACHE_VER` 即失效 |
+| 接口 | `GET /dsh-chart-cache/<key>` 取、`POST /dsh-chart-cache/<key>` 存、`POST /dsh-chart-cache/clear` 清空 |
+| 清理 | 插件卸载/停用/重载时自动 `rm -rf` 整个缓存目录 |
 
 ## License
 
