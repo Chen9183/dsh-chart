@@ -13,7 +13,8 @@ mermaid 11.16 已内联进 `client.js`，**离线可用、零外部依赖**，�
   - `<>` 原文视图（不渲染的源码块）
 - **自绘渲染**：柱状图 / 折线图 / 饼图由插件自己画 SVG，圆角柱、亮色配色、分组柱（多个 `bar` 数组自动并排）
 - **语法校验**：先过 mermaid 的 `parse`，标准写法走标准路径；解析不了就降级兼容渲染，并打上黄色的「⚠ 语法不标准」标记
-- **系统提示词注入**：插件会自动告诉模型"你可以用 mermaid 画图"，模型会主动画
+- **系统提示词只放指针**：插件往系统提示词里注入三行短提示（能画图 / 一图一块 / 末行写 `%%`），
+  严格的 mermaid 格式、模板和自检清单放在技能 [`chart`](../../.dsh/skills/chart/SKILL.md) 里，模型要画时才加载 —— 常驻上下文省了，格式反而更严
 - **容错**：流式输出时等代码块写完（450ms 稳定）再渲染；失败自动重试 3 次
 
 ## 用法
@@ -62,6 +63,9 @@ dsh plugin --profile web add file:/path/to/dsh-chart-1.1.0.tgz
 
 装完重启 `dsh web`（客户端 bundle 的 rev 在启动时计算），刷新页面即可。
 
+> 格式规范放在技能里：把 `SKILL.md` 装到 `~/.dsh/skills/chart/SKILL.md`。缺了它插件照样渲染，
+> 只是模型手里没有严格模板可抄。
+
 ## 开发
 
 ```bash
@@ -84,6 +88,7 @@ npm pack          # 打 tarball
 ├── scripts/build.mjs     # 构建脚本
 ├── assets/icon.svg       # 插件图标
 ├── locale/zh.json        # 标题「图表」+ 中文简介
+├── skill/SKILL.md        # 技能 chart 的正文（严格的 mermaid 模板 + 自检清单）
 ├── locale/en.json        # Title "Chart" + English description
 └── LICENSE
 ```
