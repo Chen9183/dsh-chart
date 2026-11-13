@@ -18,6 +18,7 @@
  */
 
 import { mkdir, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises';
+import { constants as zlibConstants, deflateRawSync, inflateRawSync, zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -35,6 +36,9 @@ const USAGE = [
 ].join('\n');
 
 const ROUTE = '/dsh-chart-cache';   // 不用 /plugins/ 前缀，免得跟 client-modules 的路由打架
+// 缓存文件后缀：svg 是纯文本，zstd 压完只有一成多，落盘更省
+const EXT = '.json.zst';
+const LEGACY_EXT = '.json';
 const MAX_BODY = 4 * 1024 * 1024; // 单张图的 svg 上限，防止被灌大包
 const KEY_RE = /^[a-z0-9]{6,64}$/;
 
@@ -42,6 +46,20 @@ const KEY_RE = /^[a-z0-9]{6,64}$/;
 export function cacheDir() {
   const home = process.env.DSH_HOME || join(homedir(), '.dsh');
   return join(home, 'cache', 'dsh-chart');
+}
+
+// zstd 优先（Node 22+ 自带）；老 Node 退回 deflateRaw，不能再退就原样存
+const HAS_ZSTD = typeof zstdCompressSync === 'function';
+
+function compressText(text) {
+  const buf = Buffer.from(text, 'utf8');
+  if (HAS_ZSTD) return zstdCompressSync(buf, { params: { [zlibConstants.ZSTD_c_compressionLevel]: 3 } });
+  try { return deflateRawSync(buf); } catch (e) { return buf; }
+}
+
+function decompressText(buf) {
+  if (HAS_ZSTD) return zstdDecompressSync(buf).toString('utf8');
+  try { return inflateRawSync(buf).toString('utf8'); } catch (e) { return buf.toString('utf8'); }
 }
 
 async function ensureDir() {
@@ -122,9 +140,13 @@ function serveCache(ctx) {
         if (req.method === 'GET' || req.method === 'HEAD') {
           let svg;
           try {
-            svg = await readFile(join(cacheDir(), rest + '.json'), 'utf8');
+            svg = decompressText(await readFile(join(cacheDir(), rest + EXT)));
           } catch (e) {
-            return send(res, 404, 'miss');
+            try {
+              svg = await readFile(join(cacheDir(), rest + LEGACY_EXT), 'utf8');   // 兼容旧的未压缩缓存
+            } catch (e2) {
+              return send(res, 404, 'miss');
+            }
           }
           return send(res, 200, req.method === 'HEAD' ? undefined : svg, 'image/svg+xml; charset=utf-8');
         }
@@ -132,8 +154,14 @@ function serveCache(ctx) {
           const body = await readBody(req, MAX_BODY);
           if (!body || body.length < 40) return send(res, 400, 'empty');
           const dir = await ensureDir();
-          await writeFile(join(dir, rest + '.json'), body, 'utf8');
-          return send(res, 200, JSON.stringify({ ok: true, bytes: body.length }), 'application/json');
+          const packed = compressText(body);
+          await writeFile(join(dir, rest + EXT), packed);
+          return send(res, 200, JSON.stringify({
+            ok: true,
+            raw: Buffer.byteLength(body),
+            bytes: packed.length,
+            ratio: +(packed.length / Math.max(1, Buffer.byteLength(body))).toFixed(3)
+          }), 'application/json');
         }
         res.setHeader('allow', 'GET, HEAD, POST');
         return send(res, 405, 'method not allowed');
